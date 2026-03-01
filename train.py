@@ -315,7 +315,7 @@ def main():
         'layers':          args.layers,
         'multi_heads':     args.multi_heads,
         'n_units':         args.n_units,
-        'n_hidden':        args.n_hidden,
+        'n_hidden':        args.n_units * 4,
         'dropout':         args.dropout,
         'label_smoothing': args.label_smoothing,
         'wbatchsize':      args.wbatchsize,
@@ -440,14 +440,14 @@ def main():
                 _append_metrics(metrics_path, {
                     'step':      global_steps,
                     'epoch':     epoch + 1,
-                    'lr':        current_lr,
-                    'train_ppl': train_stats.ppl(),
-                    'train_acc': train_stats.accuracy(),
-                    'val_ppl':   valid_stats.ppl(),
-                    'val_acc':   valid_stats.accuracy(),
-                    'bleu_fwd':  bleu_fwd * 100,
-                    'bleu_rev':  bleu_rev * 100,
-                    'avg_bleu':  avg_bleu * 100,
+                    'lr':        float(current_lr),
+                    'train_ppl': float(train_stats.ppl()),
+                    'train_acc': float(train_stats.accuracy()),
+                    'val_ppl':   float(valid_stats.ppl()),
+                    'val_acc':   float(valid_stats.accuracy()),
+                    'bleu_fwd':  float(bleu_fwd * 100),
+                    'bleu_rev':  float(bleu_rev * 100),
+                    'avg_bleu':  float(avg_bleu * 100),
                 })
 
                 # ── TensorBoard eval-step logging ─────────────────────────

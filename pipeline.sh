@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Full pipeline for bidirectional Twi <-> Chinese translation
 # Usage:
-#   bash run_twi_chi.sh              # run all stages
-#   bash run_twi_chi.sh prepare      # build bidirectional splits + BPE
-#   bash run_twi_chi.sh preprocess   # preprocess (run after prepare)
-#   bash run_twi_chi.sh train        # train
-#   bash run_twi_chi.sh translate    # translate test set (Twi->Chi and Chi->Twi)
+#   bash pipeline.sh              # run all stages
+#   bash pipeline.sh prepare      # build bidirectional splits + BPE
+#   bash pipeline.sh preprocess   # preprocess (run after prepare)
+#   bash pipeline.sh train        # train
+#   bash pipeline.sh translate    # translate test set (Twi->Chi and Chi->Twi)
+#   bash pipeline.sh eval         # compute BLEU on translated output
+#   bash pipeline.sh plot         # plot training curves
+#   bash pipeline.sh tensorboard  # launch TensorBoard
 
 set -e
 
@@ -78,8 +81,6 @@ if [[ "$STAGE" == "all" || "$STAGE" == "translate" ]]; then
         --src             "$DATA_DIR/test.src" \
         --output          results/twi_chi_pred_twi2chi.txt \
         --gpu "$GPU"
-    # Note: Twi->Chi output is already Chinese characters; post_process_output
-    # inside translate.py joins adjacent Chinese chars automatically.
     echo "Translations saved to results/twi_chi_pred_twi2chi.txt"
 
     echo "=== Step 4b: Translating test set (Chi->Twi) ==="
@@ -94,7 +95,55 @@ if [[ "$STAGE" == "all" || "$STAGE" == "translate" ]]; then
         --output          results/twi_chi_pred_chi2twi.txt \
         --spm_model       "$SPM_MODEL" \
         --gpu "$GPU"
-    # Note: Chi->Twi output is BPE-tokenised Twi; --spm_model triggers SPM decode
-    # inside translate.py so the output file contains readable Twi words.
     echo "Translations saved to results/twi_chi_pred_chi2twi.txt"
+fi
+
+# ─── Step 5: Evaluate (BLEU) ───────────────────────────────────────────────────
+if [[ "$STAGE" == "all" || "$STAGE" == "eval" ]]; then
+    echo "=== Step 5: BLEU Evaluation ==="
+    python - <<PYEOF
+import sys, os
+sys.path.insert(0, '.')
+from metrics import BLEUEvaluator
+import sentencepiece as spm
+
+def read_lines(path):
+    with open(path, encoding='utf-8') as f:
+        return [l.rstrip('\n') for l in f]
+
+# ── Twi→Chi: character-level BLEU ─────────────────────────────────────────────
+# Reference (test.tgt) is already char-tokenised (space-separated chars).
+# Hypothesis has adjacent chars joined by post_process_output; re-split to chars.
+ref_chi = [list(l.replace(' ', '')) for l in read_lines('$DATA_DIR/test.tgt')]
+hyp_chi = [list(l.replace(' ', '')) for l in read_lines('results/twi_chi_pred_twi2chi.txt')]
+bleu_fwd = BLEUEvaluator().evaluate(ref_chi, hyp_chi)
+print(f'Twi -> Chi  BLEU: {bleu_fwd}')
+
+# ── Chi→Twi: word-level BLEU (SPM-decode the BPE reference) ──────────────────
+sp = spm.SentencePieceProcessor()
+sp.load('$SPM_MODEL')
+
+ref_twi_bpe = read_lines('$DATA_DIR/test_rev.tgt')
+ref_twi = [sp.decode(l.split()).split() for l in ref_twi_bpe]
+hyp_twi = [l.split() for l in read_lines('results/twi_chi_pred_chi2twi.txt')]
+bleu_rev = BLEUEvaluator().evaluate(ref_twi, hyp_twi)
+print(f'Chi -> Twi  BLEU: {bleu_rev}')
+
+fwd_val = (bleu_fwd.bleu or 0.0) * 100
+rev_val = (bleu_rev.bleu or 0.0) * 100
+print(f'Average     BLEU: {(fwd_val + rev_val) / 2:.4f}')
+PYEOF
+fi
+
+# ─── Step 6: Plot training curves ─────────────────────────────────────────────
+if [[ "$STAGE" == "plot" ]]; then
+    echo "=== Step 6: Plotting training curves ==="
+    python plot_training.py --metrics results/metrics.jsonl
+fi
+
+# ─── TensorBoard ──────────────────────────────────────────────────────────────
+if [[ "$STAGE" == "tensorboard" ]]; then
+    echo "=== Launching TensorBoard ==="
+    echo "Open http://localhost:6006 in your browser"
+    tensorboard --logdir results/runs
 fi
