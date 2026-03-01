@@ -1,0 +1,38 @@
+# Twi-Chinese Translator Configuration
+
+app:
+  name: "Twi ⇄ Chinese Translator"
+  version: "1.0.0"
+  description: "Neural Machine Translation powered by Transformer"
+
+model:
+  vocab_size: 9238        # shared Twi+Chinese BPE vocabulary
+  max_length: 100
+  default_beam_size: 5
+  default_alpha: 0.6
+
+  paths:
+    model: "../Attention_is_All_You_Need/results/twi_chi_model_best.ckpt"
+    vocab: "../Attention_is_All_You_Need/data/twi_chi/twi_chi.vocab.pickle"
+    spm:   "../Attention_is_All_You_Need/data/twi_chi/twi_spm.model"
+
+ui:
+  page_title: "Twi ⇄ Chinese Translator"
+  page_icon: "🌍"
+  layout: "wide"
+  
+  examples:
+    twi:
+      - "Kofi rekɔ kuo no mu."
+      - "Me pɛ sɛ medidi."
+      - "Eyinom yɛ me nuabarima."
+    chinese:
+      - "科菲正在进房间。"
+      - "我想吃饭。"
+      - "他们是我的兄弟。"
+
+features:
+  enable_history: true
+  max_history: 50
+  enable_download: true
+  enable_examples: true

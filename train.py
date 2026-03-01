@@ -280,7 +280,7 @@ def main():
     if args.resume:
         if os.path.isfile(args.model_file):
             print("=> loading checkpoint '{}'".format(args.model_file))
-            checkpoint = torch.load(args.model_file)
+            checkpoint = torch.load(args.model_file, weights_only=False)
             args.start_epoch = checkpoint['epoch']
             best_score = checkpoint['best_score']
             model.load_state_dict(checkpoint['state_dict'])
@@ -520,14 +520,14 @@ def main():
         print(f'Averaging {len(ckpt_ring)} recent checkpoints for final eval...')
         avg_sd = None
         for ring_path in ckpt_ring:
-            sd = torch.load(ring_path)['state_dict']
+            sd = torch.load(ring_path, weights_only=False)['state_dict']
             if avg_sd is None:
                 avg_sd = {k: v.float().clone() for k, v in sd.items()}
             else:
                 for k in avg_sd:
                     avg_sd[k] += sd[k].float()
         n = float(len(ckpt_ring))
-        ref_sd = torch.load(args.best_model_file)['state_dict']
+        ref_sd = torch.load(args.best_model_file, weights_only=False)['state_dict']
         avg_sd = {k: (avg_sd[k] / n).to(ref_sd[k].dtype) for k in avg_sd}
         model.load_state_dict(avg_sd)
         # Clean up ring files
@@ -538,7 +538,7 @@ def main():
                 pass
         print('Averaged checkpoint loaded.')
     else:
-        checkpoint = torch.load(args.best_model_file)
+        checkpoint = torch.load(args.best_model_file, weights_only=False)
         print("=> loaded checkpoint '{}' (epoch {}, best score {})".
               format(args.best_model_file,
                      checkpoint['epoch'],

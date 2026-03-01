@@ -49,6 +49,18 @@ data/twi_chi/train.tgt
 
 # ── Training outputs ──────────────────────────────────────────────────────────
 results/
+# But keep the metrics log and test output for reproducibility
+!results/metrics.jsonl
+!results/twi_chi_test.out
+
+# ── Streamlit app model files (large binaries — mount at runtime) ─────────────
+streamlit_app/models/*.ckpt
+streamlit_app/models/*.pickle
+streamlit_app/models/*.pkl
+streamlit_app/models/*.model
+streamlit_app/models/*.vocab
+!streamlit_app/models/.gitkeep
+!streamlit_app/models/README.md
 
 # ── Jupyter ───────────────────────────────────────────────────────────────────
 .ipynb_checkpoints

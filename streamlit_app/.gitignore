@@ -1,0 +1,45 @@
+# ── Model artifacts (large binary files — do NOT commit) ─────────────────────
+models/*.ckpt
+models/*.pickle
+models/*.pkl
+models/*.model
+models/*.vocab
+# Keep the directory structure
+!models/.gitkeep
+!models/README.md
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── Virtual environments ──────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── Streamlit ─────────────────────────────────────────────────────────────────
+.streamlit/secrets.toml
+
+# ── OS / editor ──────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ── Docker ───────────────────────────────────────────────────────────────────
+.dockerignore
+
+# ── Logs & temp ──────────────────────────────────────────────────────────────
+*.log
+*.tmp
+*.bak

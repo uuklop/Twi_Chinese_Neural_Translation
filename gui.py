@@ -140,14 +140,21 @@ class TranslationEngine:
 
         if direction == "twi2chi":
             pieces = self.sp.encode(text, out_type=str)
-            ids = [self.w2id.get(p, preprocess.Vocab_Pad.UNK) for p in pieces]
+            if not pieces:
+                return "<empty input after tokenisation>"
+            # <2zh> tells the model to generate Chinese output
+            tag_id = self.w2id.get('<2zh>', preprocess.Vocab_Pad.UNK)
+            ids = [tag_id] + [self.w2id.get(p, preprocess.Vocab_Pad.UNK)
+                              for p in pieces]
         else:
             tokenised = char_tokenize_line(text)
-            ids = [self.w2id.get(t, preprocess.Vocab_Pad.UNK)
-                   for t in tokenised.split()]
-
-        if not ids:
-            return "<empty input after tokenisation>"
+            tokens = tokenised.split()
+            if not tokens:
+                return "<empty input after tokenisation>"
+            # <2tw> tells the model to generate Twi output
+            tag_id = self.w2id.get('<2tw>', preprocess.Vocab_Pad.UNK)
+            ids = [tag_id] + [self.w2id.get(t, preprocess.Vocab_Pad.UNK)
+                              for t in tokens]
 
         src = [np.array(ids, dtype="i")]
         with torch.no_grad():

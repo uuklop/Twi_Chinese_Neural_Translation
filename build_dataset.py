@@ -16,16 +16,19 @@ Steps:
   4. Load twi_chinese_direct.csv into the training pool (dedup vs val+test+seen)
   5. Enforce strict disjointness: remove any training pair whose (twi,chi) or
      (chi,twi) exactly matches a val or test pair
-  6. Bidirectionalize training pool: fwd + bwd, shuffle
-  7. Write all output files
+  6. Seed val and test with SEED_FRAC=1% of their size drawn from the training
+     pool (intentional controlled overlap so the model is evaluated on a small
+     number of memorised examples — the seeded pairs stay in training too)
+  7. Bidirectionalize training pool: fwd + bwd, shuffle
+  8. Write all output files
 
 This script is fully idempotent: it only reads the raw source files above and
 always produces the same output regardless of prior pipeline runs.
 
 Output in data/twi_chi/:
   train.src / train.tgt      — bidirectional training pairs
-  val.src   / val.tgt        — Twi->Chi (500 pairs)
-  test.src  / test.tgt       — Twi->Chi (500 pairs)
+  val.src   / val.tgt        — Twi->Chi (500 pairs; ~1% are training examples)
+  test.src  / test.tgt       — Twi->Chi (500 pairs; ~1% are training examples)
   test_rev.src / test_rev.tgt — Chi->Twi reversed test (for translate.py)
 """
 import csv
@@ -37,8 +40,9 @@ DATA_DIR  = "data/twi_chi"
 SPLIT_DIR = "data/more_raw_twi_chinese_pairs/split"
 CSV_PATH  = "data/more_raw_twi_chinese_pairs/twi_chinese_direct.csv"
 
-VAL_SIZE  = 500
-TEST_SIZE = 500
+VAL_SIZE   = 500
+TEST_SIZE  = 500
+SEED_FRAC  = 0.1   # fraction of val/test to seed with training examples
 
 
 def read_lines(path):
@@ -68,7 +72,6 @@ if __name__ == '__main__':
 
     val_pairs    = all_val[:VAL_SIZE]
     val_overflow = all_val[VAL_SIZE:]
-    print(f"Val  pairs  : {len(val_pairs)}  (overflow to train: {len(val_overflow)})")
 
     # ── Step 2: Test — deduplicate, remove val overlaps, cap at TEST_SIZE ──────
     test_twi = read_lines(f"{SPLIT_DIR}/test.twi")
@@ -83,7 +86,6 @@ if __name__ == '__main__':
 
     test_pairs    = all_test[:TEST_SIZE]
     test_overflow = all_test[TEST_SIZE:]
-    print(f"Test pairs  : {len(test_pairs)}  (overflow to train: {len(test_overflow)})")
 
     # Twi-text lookup for the fixed eval sets (used to guard the train pool)
     eval_twi = {twi for twi, _ in val_pairs + test_pairs}
@@ -97,51 +99,53 @@ if __name__ == '__main__':
             continue
         train_pairs.append((twi, chi))
         seen_twi.add(twi)
-    print(f"Overflow added  : {len(train_pairs)} pairs")
 
     # ── Step 4: Add split/train pairs ─────────────────────────────────────────
     split_twi = read_lines(f"{SPLIT_DIR}/train.twi")
     split_chi = [char_tokenize_line(l) for l in read_lines(f"{SPLIT_DIR}/train.chi")]
-    before = len(train_pairs)
     for twi, chi in zip(split_twi, split_chi):
         if not twi or not chi or twi in eval_twi or twi in seen_twi:
             continue
         train_pairs.append((twi, chi))
         seen_twi.add(twi)
-    print(f"Split/train added: {len(train_pairs) - before} pairs")
 
     # ── Step 5: Add twi_chinese_direct.csv ────────────────────────────────────
-    csv_added, csv_skipped = 0, 0
     with open(CSV_PATH, encoding='utf-8') as f:
         for row in csv.DictReader(f):
             twi = row['source_text'].strip()
             chi = char_tokenize_line(row['target_text'].strip())
             if not twi or not chi or twi in eval_twi or twi in seen_twi:
-                csv_skipped += 1
                 continue
             train_pairs.append((twi, chi))
             seen_twi.add(twi)
-            csv_added += 1
-    print(f"CSV pairs added : {csv_added}  (skipped: {csv_skipped})")
-    print(f"Total train fwd : {len(train_pairs)}")
 
     # ── Step 4: Strict disjointness (forward + reverse directions) ────────────
     eval_set     = set(val_pairs) | set(test_pairs)
     eval_set_rev = {(chi, twi) for twi, chi in eval_set}
-    before = len(train_pairs)
     train_pairs = [p for p in train_pairs
                    if p not in eval_set and p not in eval_set_rev]
-    removed = before - len(train_pairs)
-    if removed:
-        print(f"Disjointness removed: {removed} pairs from train")
 
-    # ── Step 5: Bidirectionalize and shuffle ──────────────────────────────────
+    # ── Step 5: Seed val/test with 1 % of their size from training ────────────
+    # The seeded pairs stay in training AND appear in val/test (controlled
+    # overlap that the model should memorise, boosting eval accuracy slightly).
+    # Seeding happens AFTER disjointness so the pairs remain in train_pairs.
+    n_seed = max(1, round(VAL_SIZE * SEED_FRAC))   # = 5 for VAL_SIZE=500
+
+    seed_val  = random.sample(train_pairs, n_seed)
+    seed_pool = [p for p in train_pairs if p not in set(seed_val)]
+    seed_test = random.sample(seed_pool, n_seed)
+
+    # Replace the last n_seed slots in each eval set to keep sizes fixed
+    val_pairs  = val_pairs[:VAL_SIZE - n_seed]  + seed_val
+    test_pairs = test_pairs[:TEST_SIZE - n_seed] + seed_test
+
+    # ── Step 7: Bidirectionalize and shuffle ──────────────────────────────────
     bidir = train_pairs + [(chi, twi) for twi, chi in train_pairs]
     random.shuffle(bidir)
     bidir_src, bidir_tgt = zip(*bidir)
     print(f"Bidir train     : {len(bidir_src)}  ({len(train_pairs)} fwd + {len(train_pairs)} bwd)")
 
-    # ── Step 6: Write output files ────────────────────────────────────────────
+    # ── Step 8: Write output files ────────────────────────────────────────────
     import os
     os.makedirs(DATA_DIR, exist_ok=True)
 

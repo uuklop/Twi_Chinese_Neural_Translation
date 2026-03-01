@@ -1,0 +1,285 @@
+/* Custom CSS for Twi-Chinese Translator */
+
+/* ── Flag banner ──────────────────────────────────────────────────────────── */
+.flag-banner {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2rem;
+    margin: 0.5rem 0 1.2rem;
+}
+
+.flag-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.flag-card img {
+    width: 220px;
+    height: 130px;
+    object-fit: cover;
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+    border: 2px solid #e9ecef;
+}
+
+.flag-label {
+    font-size: 0.82rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #6c757d;
+}
+
+.flag-divider {
+    font-size: 2rem;
+    font-weight: 300;
+    color: #adb5bd;
+    line-height: 1;
+    margin-top: -1.2rem; /* align with image centre */
+}
+
+/* Copyright bar */
+.copyright-bar {
+    text-align: right;
+    font-size: 0.78rem;
+    color: #6c757d;
+    padding: 0.25rem 0.5rem 0.1rem;
+    letter-spacing: 0.03em;
+}
+
+/* Main header */
+.main-header {
+    text-align: center;
+    padding: 2rem 0;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 15px;
+    margin-bottom: 2rem;
+    color: white;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+}
+
+.main-header h1 {
+    font-size: 2.5rem;
+    margin-bottom: 0.5rem;
+    font-weight: 700;
+}
+
+.main-header p {
+    font-size: 1.1rem;
+    opacity: 0.9;
+}
+
+/* Sidebar styling */
+[data-testid="stSidebar"] {
+    background-color: #f8f9fa;
+    border-right: 1px solid #e9ecef;
+}
+
+[data-testid="stSidebar"] h2 {
+    color: #495057;
+    font-size: 1.3rem;
+    margin-bottom: 1.5rem;
+}
+
+[data-testid="stSidebar"] h3 {
+    color: #6c757d;
+    font-size: 1rem;
+    margin-top: 1.5rem;
+    margin-bottom: 0.5rem;
+}
+
+/* Text areas */
+st.text_area {
+    border-radius: 10px;
+    border: 2px solid #e9ecef;
+    transition: border-color 0.3s ease;
+}
+
+st.text_area:focus {
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+/* Buttons */
+st.button[kind="primary"] {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border: none;
+    border-radius: 25px;
+    padding: 0.75rem 2rem;
+    font-weight: 600;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+st.button[kind="primary"]:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+}
+
+/* Expander for history */
+[data-testid="stExpander"] {
+    border: 1px solid #e9ecef;
+    border-radius: 10px;
+    margin-bottom: 0.5rem;
+    background-color: white;
+}
+
+[data-testid="stExpander"]:hover {
+    border-color: #667eea;
+}
+
+/* Success/Error messages */
+.stSuccess {
+    background-color: #d4edda;
+    border-left: 4px solid #28a745;
+    border-radius: 5px;
+    padding: 1rem;
+}
+
+.stError {
+    background-color: #f8d7da;
+    border-left: 4px solid #dc3545;
+    border-radius: 5px;
+    padding: 1rem;
+}
+
+.stInfo {
+    background-color: #d1ecf1;
+    border-left: 4px solid #17a2b8;
+    border-radius: 5px;
+    padding: 1rem;
+}
+
+/* ── Confidence bar ───────────────────────────────────────────────────────── */
+.conf-wrap {
+    margin: 1.2rem 0 0.5rem;
+    padding: 1rem 1.25rem;
+    background: #f8f9fa;
+    border-radius: 12px;
+    border: 1px solid #e9ecef;
+}
+
+.conf-header {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    margin-bottom: 0.65rem;
+}
+
+.conf-title {
+    flex: 1;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #6c757d;
+}
+
+.conf-pct {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #212529;
+}
+
+.conf-badge {
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 0.18rem 0.55rem;
+    border-radius: 20px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.conf-badge.conf-high   { background: #d4edda; color: #155724; }
+.conf-badge.conf-medium { background: #fff3cd; color: #856404; }
+.conf-badge.conf-low    { background: #f8d7da; color: #721c24; }
+
+.conf-track {
+    background: #dee2e6;
+    border-radius: 10px;
+    height: 10px;
+    overflow: hidden;
+}
+
+.conf-fill {
+    height: 100%;
+    border-radius: 10px;
+}
+
+/* Footer */
+.footer {
+    text-align: center;
+    padding: 2rem;
+    margin-top: 3rem;
+    border-top: 1px solid #e9ecef;
+    color: #6c757d;
+}
+
+.footer a {
+    color: #667eea;
+    text-decoration: none;
+}
+
+.footer a:hover {
+    text-decoration: underline;
+}
+
+/* Columns */
+[data-testid="column"] {
+    padding: 1rem;
+}
+
+/* Select boxes */
+[data-testid="stSelectbox"] > div > div {
+    border-radius: 8px;
+}
+
+/* Radio buttons */
+[data-testid="stRadio"] > div {
+    background-color: white;
+    padding: 0.5rem;
+    border-radius: 8px;
+}
+
+/* Sliders */
+[data-testid="stSlider"] > div > div {
+    padding-top: 1rem;
+}
+
+/* Spinner */
+.stSpinner > div {
+    border-top-color: #667eea !important;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #667eea;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #764ba2;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .main-header h1 {
+        font-size: 1.8rem;
+    }
+    
+    .main-header p {
+        font-size: 0.9rem;
+    }
+}

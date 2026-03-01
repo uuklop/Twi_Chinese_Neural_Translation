@@ -24,6 +24,17 @@ DATA_FILES = [
     "test_rev.src", "test_rev.tgt",
 ]
 
+# Source files get a direction tag prepended so the model knows which language
+# to generate.  Target files get no tag.
+#   <2zh>  →  generate Chinese   (used in Twi→Chi direction)
+#   <2tw>  →  generate Twi       (used in Chi→Twi direction)
+SRC_TAG = {
+    "train.src":    "auto",   # mixed Twi→Chi and Chi→Twi — detect per line
+    "val.src":      "<2zh>",  # all Twi sources  → generate Chinese
+    "test.src":     "<2zh>",  # all Twi sources  → generate Chinese
+    "test_rev.src": "<2tw>",  # all Chinese sources → generate Twi
+}
+
 
 def is_chinese(line):
     return any(
@@ -45,15 +56,33 @@ def write_lines(path, lines):
             f.write(line + '\n')
 
 
-def apply_bpe_to_file(sp, path):
+def apply_bpe_to_file(sp, path, src_tag=None):
+    """BPE-tokenise Twi lines; Chinese lines are left character-tokenised.
+
+    src_tag controls direction-tag prepending for source files:
+      'auto'  — detect per line: Twi lines get <2zh>, Chinese lines get <2tw>
+      '<2zh>' — prepend <2zh> to every line (all-Twi source files)
+      '<2tw>' — prepend <2tw> to every line (all-Chinese source files)
+      None    — no tag (target files)
+    """
     lines = read_lines(path)
     out, twi_count = [], 0
     for line in lines:
-        if is_chinese(line):
-            out.append(line)
+        chinese = is_chinese(line)
+        if chinese:
+            encoded = line
         else:
-            out.append(' '.join(sp.encode(line, out_type=str)))
+            encoded = ' '.join(sp.encode(line, out_type=str))
             twi_count += 1
+
+        if src_tag == 'auto':
+            tag = '<2tw>' if chinese else '<2zh>'
+            out.append(f"{tag} {encoded}")
+        elif src_tag is not None:
+            out.append(f"{src_tag} {encoded}")
+        else:
+            out.append(encoded)
+
     write_lines(path, out)
     return len(lines), twi_count
 
@@ -83,11 +112,13 @@ if __name__ == '__main__':
     # Step 3: Apply BPE to all data files
     sp = spm.SentencePieceProcessor()
     sp.load(f"{MODEL_PREFIX}.model")
-    print("\nApplying BPE to data files:")
+    print("\nApplying BPE + direction tags to data files:")
     for fname in DATA_FILES:
         path = os.path.join(DATA_DIR, fname)
-        total, twi = apply_bpe_to_file(sp, path)
-        print(f"  {fname:<22}  {total:6,} lines  ({twi:,} Twi tokenised)")
+        tag  = SRC_TAG.get(fname, None)   # None → target file, no tag
+        total, twi = apply_bpe_to_file(sp, path, src_tag=tag)
+        tag_info = f"  tag={tag}" if tag else ""
+        print(f"  {fname:<22}  {total:6,} lines  ({twi:,} Twi tokenised){tag_info}")
 
     print(f"\nDone.  SPM model saved at: {MODEL_PREFIX}.model")
     print("Pass  --spm_model data/twi_chi/twi_spm.model  to train.py / translate.py")

@@ -1,0 +1,27 @@
+[server]
+headless = true
+address = "0.0.0.0"
+port = 8501
+enableCORS = false
+enableXsrfProtection = false
+maxUploadSize = 10
+
+[browser]
+gatherUsageStats = false
+serverAddress = "0.0.0.0"
+
+[logger]
+level = "info"
+
+[runner]
+magicEnabled = false
+installTracer = false
+fixMatplotlib = true
+
+[theme]
+base = "light"
+primaryColor = "#667eea"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f8f9fa"
+textColor = "#262730"
+font = "sans serif"
