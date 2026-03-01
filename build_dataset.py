@@ -1,29 +1,44 @@
 """
 Prepares bidirectional Twi <-> Chinese dataset.
 
-Steps:
-  1. Recover original Twi->Chi pairs from existing bidirectional train.src/tgt
-     (detect direction by presence of CJK characters in source)
-  2. Include current val.src/tgt and test.src/tgt pairs
-  3. Merge in new pairs from twi_chinese_direct.csv (char-tokenize Chinese side)
-  4. Deduplicate on Twi source text
-  5. Shuffle and split: val=500, test=500, train=rest
-  6. Build bidirectional train (Twi->Chi + Chi->Twi, shuffled)
-  7. Enforce strict train/val/test disjointness
-  8. Write all output files
+Sources (read-only, never modified):
+  data/more_raw_twi_chinese_pairs/split/train.twi / train.chi  — 29 K pairs
+  data/more_raw_twi_chinese_pairs/split/val.twi   / val.chi    — 800 pairs
+  data/more_raw_twi_chinese_pairs/split/test.twi  / test.chi   — 1 299 pairs
+  data/more_raw_twi_chinese_pairs/twi_chinese_direct.csv        — 26 K pairs
 
-Output files in data/twi_chi/:
-  train.src / train.tgt  — bidirectional training pairs
-  val.src   / val.tgt    — Twi->Chi only (500 pairs)
-  test.src  / test.tgt   — Twi->Chi only (500 pairs)
-  test_rev.src / test_rev.tgt  — Chi->Twi (for translate.py)
+Steps:
+  1. Load split/val → deduplicate → keep first VAL_SIZE=500 as val;
+     overflow goes to the training pool
+  2. Load split/test → deduplicate, remove val overlaps → keep first TEST_SIZE=500
+     as test; overflow goes to the training pool
+  3. Load split/train pairs into the training pool (dedup vs val+test)
+  4. Load twi_chinese_direct.csv into the training pool (dedup vs val+test+seen)
+  5. Enforce strict disjointness: remove any training pair whose (twi,chi) or
+     (chi,twi) exactly matches a val or test pair
+  6. Bidirectionalize training pool: fwd + bwd, shuffle
+  7. Write all output files
+
+This script is fully idempotent: it only reads the raw source files above and
+always produces the same output regardless of prior pipeline runs.
+
+Output in data/twi_chi/:
+  train.src / train.tgt      — bidirectional training pairs
+  val.src   / val.tgt        — Twi->Chi (500 pairs)
+  test.src  / test.tgt       — Twi->Chi (500 pairs)
+  test_rev.src / test_rev.tgt — Chi->Twi reversed test (for translate.py)
 """
 import csv
+import os
 import random
 from tokenize_chinese import char_tokenize_line
 
-DATA_DIR = "data/twi_chi"
-CSV_PATH = "data/more_raw_twi_chinese_pairs/twi_chinese_direct.csv"
+DATA_DIR  = "data/twi_chi"
+SPLIT_DIR = "data/more_raw_twi_chinese_pairs/split"
+CSV_PATH  = "data/more_raw_twi_chinese_pairs/twi_chinese_direct.csv"
+
+VAL_SIZE  = 500
+TEST_SIZE = 500
 
 
 def read_lines(path):
@@ -37,87 +52,110 @@ def write_lines(path, lines):
             f.write(line + '\n')
 
 
-def is_chinese(line):
-    return any(0x4E00 <= ord(c) <= 0x9FFF
-               or 0x3400 <= ord(c) <= 0x4DBF
-               or 0xF900 <= ord(c) <= 0xFAFF
-               for c in line)
-
-
 if __name__ == '__main__':
     random.seed(42)
 
-    # Step 1: Recover Twi->Chi forward pairs from bidirectional train
-    train_src_lines = read_lines(f"{DATA_DIR}/train.src")
-    train_tgt_lines = read_lines(f"{DATA_DIR}/train.tgt")
-    existing_pairs = []
-    for src, tgt in zip(train_src_lines, train_tgt_lines):
-        if not is_chinese(src):
-            existing_pairs.append((src, tgt))
-    print(f"Recovered from train  : {len(existing_pairs)} pairs")
+    # ── Step 1: Val — deduplicate, cap at VAL_SIZE, overflow → train pool ──────
+    val_twi = read_lines(f"{SPLIT_DIR}/val.twi")
+    val_chi = [char_tokenize_line(l) for l in read_lines(f"{SPLIT_DIR}/val.chi")]
 
-    # Step 2: Add current val and test (already Twi->Chi, chi char-tokenised)
-    val_pairs  = list(zip(read_lines(f"{DATA_DIR}/val.src"),
-                          read_lines(f"{DATA_DIR}/val.tgt")))
-    test_pairs = list(zip(read_lines(f"{DATA_DIR}/test.src"),
-                          read_lines(f"{DATA_DIR}/test.tgt")))
-    existing_pairs += val_pairs + test_pairs
-    print(f"After adding val+test : {len(existing_pairs)} pairs")
+    seen = set()
+    all_val = []
+    for p in zip(val_twi, val_chi):
+        if p not in seen:
+            all_val.append(p)
+            seen.add(p)
 
-    # Step 3: Merge new CSV pairs (char-tokenise Chinese side)
-    seen_twi = {src for src, _ in existing_pairs}
-    new_pairs, skipped = [], 0
+    val_pairs    = all_val[:VAL_SIZE]
+    val_overflow = all_val[VAL_SIZE:]
+    print(f"Val  pairs  : {len(val_pairs)}  (overflow to train: {len(val_overflow)})")
+
+    # ── Step 2: Test — deduplicate, remove val overlaps, cap at TEST_SIZE ──────
+    test_twi = read_lines(f"{SPLIT_DIR}/test.twi")
+    test_chi = [char_tokenize_line(l) for l in read_lines(f"{SPLIT_DIR}/test.chi")]
+
+    seen = set(val_pairs)          # test must not overlap with val at all
+    all_test = []
+    for p in zip(test_twi, test_chi):
+        if p not in seen:
+            all_test.append(p)
+            seen.add(p)
+
+    test_pairs    = all_test[:TEST_SIZE]
+    test_overflow = all_test[TEST_SIZE:]
+    print(f"Test pairs  : {len(test_pairs)}  (overflow to train: {len(test_overflow)})")
+
+    # Twi-text lookup for the fixed eval sets (used to guard the train pool)
+    eval_twi = {twi for twi, _ in val_pairs + test_pairs}
+
+    # ── Step 3: Training pool — start with eval overflow ──────────────────────
+    seen_twi = set()
+    train_pairs = []
+
+    for twi, chi in val_overflow + test_overflow:
+        if not twi or not chi or twi in eval_twi or twi in seen_twi:
+            continue
+        train_pairs.append((twi, chi))
+        seen_twi.add(twi)
+    print(f"Overflow added  : {len(train_pairs)} pairs")
+
+    # ── Step 4: Add split/train pairs ─────────────────────────────────────────
+    split_twi = read_lines(f"{SPLIT_DIR}/train.twi")
+    split_chi = [char_tokenize_line(l) for l in read_lines(f"{SPLIT_DIR}/train.chi")]
+    before = len(train_pairs)
+    for twi, chi in zip(split_twi, split_chi):
+        if not twi or not chi or twi in eval_twi or twi in seen_twi:
+            continue
+        train_pairs.append((twi, chi))
+        seen_twi.add(twi)
+    print(f"Split/train added: {len(train_pairs) - before} pairs")
+
+    # ── Step 5: Add twi_chinese_direct.csv ────────────────────────────────────
+    csv_added, csv_skipped = 0, 0
     with open(CSV_PATH, encoding='utf-8') as f:
         for row in csv.DictReader(f):
             twi = row['source_text'].strip()
             chi = char_tokenize_line(row['target_text'].strip())
-            if not twi or not chi or twi in seen_twi:
-                skipped += 1
+            if not twi or not chi or twi in eval_twi or twi in seen_twi:
+                csv_skipped += 1
                 continue
-            new_pairs.append((twi, chi))
+            train_pairs.append((twi, chi))
             seen_twi.add(twi)
-    print(f"New CSV pairs added   : {len(new_pairs)}  (skipped duplicates/empty: {skipped})")
+            csv_added += 1
+    print(f"CSV pairs added : {csv_added}  (skipped: {csv_skipped})")
+    print(f"Total train fwd : {len(train_pairs)}")
 
-    # Step 4: Pool and shuffle
-    all_pairs = existing_pairs + new_pairs
-    random.shuffle(all_pairs)
-    print(f"Total unique pairs    : {len(all_pairs)}")
-
-    # Step 5: Split
-    VAL_SIZE, TEST_SIZE = 500, 500
-    new_val   = all_pairs[:VAL_SIZE]
-    new_test  = all_pairs[VAL_SIZE:VAL_SIZE + TEST_SIZE]
-    new_train = all_pairs[VAL_SIZE + TEST_SIZE:]
-
-    # Step 6: Enforce strict disjointness
-    eval_set     = set(new_val) | set(new_test)
-    eval_set_rev = {(t, s) for s, t in eval_set}
-    before    = len(new_train)
-    new_train = [p for p in new_train if p not in eval_set and p not in eval_set_rev]
-    removed   = before - len(new_train)
+    # ── Step 4: Strict disjointness (forward + reverse directions) ────────────
+    eval_set     = set(val_pairs) | set(test_pairs)
+    eval_set_rev = {(chi, twi) for twi, chi in eval_set}
+    before = len(train_pairs)
+    train_pairs = [p for p in train_pairs
+                   if p not in eval_set and p not in eval_set_rev]
+    removed = before - len(train_pairs)
     if removed:
-        print(f"Disjointness filter   : removed {removed} pairs from train")
-    print(f"Split  →  train: {len(new_train)}, val: {len(new_val)}, test: {len(new_test)}")
+        print(f"Disjointness removed: {removed} pairs from train")
 
-    # Step 7: Bidirectionalize train
-    bidir = list(new_train) + [(tgt, src) for src, tgt in new_train]
+    # ── Step 5: Bidirectionalize and shuffle ──────────────────────────────────
+    bidir = train_pairs + [(chi, twi) for twi, chi in train_pairs]
     random.shuffle(bidir)
     bidir_src, bidir_tgt = zip(*bidir)
-    print(f"Bidir train pairs     : {len(bidir_src)}  ({len(new_train)} fwd + {len(new_train)} bwd)")
+    print(f"Bidir train     : {len(bidir_src)}  ({len(train_pairs)} fwd + {len(train_pairs)} bwd)")
 
-    # Step 8: Write output files
-    write_lines(f"{DATA_DIR}/train.src", bidir_src)
-    write_lines(f"{DATA_DIR}/train.tgt", bidir_tgt)
-    write_lines(f"{DATA_DIR}/val.src",      [s for s, _ in new_val])
-    write_lines(f"{DATA_DIR}/val.tgt",      [t for _, t in new_val])
-    write_lines(f"{DATA_DIR}/test.src",     [s for s, _ in new_test])
-    write_lines(f"{DATA_DIR}/test.tgt",     [t for _, t in new_test])
-    write_lines(f"{DATA_DIR}/test_rev.src", [t for _, t in new_test])
-    write_lines(f"{DATA_DIR}/test_rev.tgt", [s for s, _ in new_test])
+    # ── Step 6: Write output files ────────────────────────────────────────────
+    import os
+    os.makedirs(DATA_DIR, exist_ok=True)
+
+    write_lines(f"{DATA_DIR}/train.src",     bidir_src)
+    write_lines(f"{DATA_DIR}/train.tgt",     bidir_tgt)
+    write_lines(f"{DATA_DIR}/val.src",       [s for s, _ in val_pairs])
+    write_lines(f"{DATA_DIR}/val.tgt",       [t for _, t in val_pairs])
+    write_lines(f"{DATA_DIR}/test.src",      [s for s, _ in test_pairs])
+    write_lines(f"{DATA_DIR}/test.tgt",      [t for _, t in test_pairs])
+    write_lines(f"{DATA_DIR}/test_rev.src",  [t for _, t in test_pairs])
+    write_lines(f"{DATA_DIR}/test_rev.tgt",  [s for s, _ in test_pairs])
 
     print("\nFiles written:")
     for name in ["train.src", "train.tgt", "val.src", "val.tgt",
                  "test.src",  "test.tgt",  "test_rev.src", "test_rev.tgt"]:
-        with open(f"{DATA_DIR}/{name}", encoding='utf-8') as f:
-            n = sum(1 for _ in f)
+        n = sum(1 for _ in open(f"{DATA_DIR}/{name}", encoding='utf-8'))
         print(f"  data/twi_chi/{name:<20} {n} lines")

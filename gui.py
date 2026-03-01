@@ -9,6 +9,7 @@ Usage:
 """
 import os
 import sys
+import time
 import pickle
 import argparse
 import threading
@@ -36,41 +37,62 @@ SPM_MODEL_PATH = os.path.join(DATA_DIR, "twi_spm.model")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Translation engine (loaded once, reused for every request)
+# Translation engine
 # ─────────────────────────────────────────────────────────────────────────────
 class TranslationEngine:
     def __init__(self, gpu_id: int = -1):
-        self.gpu_id = gpu_id
-        self.model  = None
-        self.id2w   = None
-        self.w2id   = None
-        self.sp     = None   # SentencePiece model for Twi BPE
-        self.device = "cpu"
-        self.epoch  = None
-        self.best_score = None
+        self.gpu_id     = gpu_id
+        self.model      = None
+        self.id2w       = None
+        self.w2id       = None
+        self.sp         = None
+        self.device     = "cpu"
+        self.epoch      = None
+        self.best_score = None   # stored as fraction [0,1]; display as ×100
 
     def load(self, status_cb=None):
-        """Load vocab, SPM model and Transformer checkpoint."""
         def log(msg):
             if status_cb:
                 status_cb(msg)
 
+        # ── vocab ──────────────────────────────────────────────────────────
+        if not os.path.exists(VOCAB_FILE):
+            raise FileNotFoundError(
+                f"Vocab file not found: {VOCAB_FILE}\n"
+                "Run  bash pipeline.sh preprocess  first."
+            )
         log("Loading vocabulary…")
         with open(VOCAB_FILE, "rb") as f:
             self.id2w = pickle.load(f)
         self.w2id = {w: i for i, w in self.id2w.items()}
 
-        log("Loading SentencePiece BPE model…")
+        # ── SentencePiece ──────────────────────────────────────────────────
+        if not os.path.exists(SPM_MODEL_PATH):
+            raise FileNotFoundError(
+                f"SPM model not found: {SPM_MODEL_PATH}\n"
+                "Run  bash pipeline.sh prepare  first."
+            )
+        log("Loading SentencePiece model…")
         import sentencepiece as spm
         self.sp = spm.SentencePieceProcessor()
         self.sp.load(SPM_MODEL_PATH)
 
+        # ── checkpoint ────────────────────────────────────────────────────
+        if not os.path.exists(BEST_CKPT):
+            raise FileNotFoundError(
+                f"No checkpoint found at: {BEST_CKPT}\n"
+                "Training may still be in progress. "
+                "Run  bash pipeline.sh train  and wait for the first evaluation."
+            )
         log("Loading checkpoint…")
-        map_loc = f"cuda:{self.gpu_id}" if self.gpu_id >= 0 and torch.cuda.is_available() else "cpu"
-        checkpoint = torch.load(BEST_CKPT, map_location=map_loc, weights_only=False)
+        map_loc = (f"cuda:{self.gpu_id}"
+                   if self.gpu_id >= 0 and torch.cuda.is_available() else "cpu")
+        checkpoint = torch.load(BEST_CKPT, map_location=map_loc,
+                                weights_only=False)
 
         self.epoch      = checkpoint.get("epoch", "?")
-        self.best_score = checkpoint.get("best_score", "?")
+        raw_score       = checkpoint.get("best_score", 0.0)
+        self.best_score = float(raw_score)   # ensure plain Python float
 
         config = checkpoint["opts"]
         utils.set_device(self.gpu_id)
@@ -86,46 +108,40 @@ class TranslationEngine:
         else:
             self.device = "cpu"
 
-        log(f"Ready  |  epoch {self.epoch}  |  best BLEU {self.best_score:.2f}  |  device: {self.device}")
-
     # ── helpers ───────────────────────────────────────────────────────────────
     def _ids_to_text(self, ids):
-        """Convert a list of token IDs to a single string."""
-        return " ".join(self.id2w.get(i, "<unk>") for i in ids if i not in
-                        (preprocess.Vocab_Pad.PAD, preprocess.Vocab_Pad.EOS,
-                         preprocess.Vocab_Pad.BOS))
+        return " ".join(
+            self.id2w.get(i, "<unk>") for i in ids
+            if i not in (preprocess.Vocab_Pad.PAD,
+                         preprocess.Vocab_Pad.EOS,
+                         preprocess.Vocab_Pad.BOS)
+        )
 
     def _post_chinese(self, text):
-        """Join adjacent Chinese characters (undo char-level spaces)."""
         tokens = text.split()
         joined = []
         for tok in tokens:
-            if (joined
-                    and tok
+            if (joined and tok
                     and utils._is_chinese_char(tok[0])
                     and utils._is_chinese_char(joined[-1][-1])):
                 joined[-1] += tok
             else:
                 joined.append(tok)
-        return "".join(joined) if all(utils._is_chinese_char(c)
-                                      for t in joined for c in t) else " ".join(joined)
+        return ("".join(joined)
+                if all(utils._is_chinese_char(c)
+                       for t in joined for c in t)
+                else " ".join(joined))
 
     # ── public API ────────────────────────────────────────────────────────────
     def translate(self, text: str, direction: str, beam_size: int = 5) -> str:
-        """
-        direction: "twi2chi" or "chi2twi"
-        Returns the translated string.
-        """
         text = text.strip()
         if not text:
             return ""
 
         if direction == "twi2chi":
-            # BPE-tokenise Twi, keep Chinese side as-is
             pieces = self.sp.encode(text, out_type=str)
             ids = [self.w2id.get(p, preprocess.Vocab_Pad.UNK) for p in pieces]
         else:
-            # char-tokenise Chinese input
             tokenised = char_tokenize_line(text)
             ids = [self.w2id.get(t, preprocess.Vocab_Pad.UNK)
                    for t in tokenised.split()]
@@ -139,20 +155,16 @@ class TranslationEngine:
                                            beam=beam_size, alpha=0.6)
 
         raw = self._ids_to_text(hyp_ids[0])
-
         if direction == "twi2chi":
             return self._post_chinese(raw)
         else:
-            # SPM-decode BPE Twi pieces
-            pieces = raw.split()
-            return self.sp.decode(pieces)
+            return self.sp.decode(raw.split())
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # GUI
 # ─────────────────────────────────────────────────────────────────────────────
 class TranslatorApp(tk.Tk):
-    # Colour palette
     BG       = "#1e1e2e"
     PANEL    = "#2a2a3e"
     ACCENT   = "#7c3aed"
@@ -160,6 +172,7 @@ class TranslatorApp(tk.Tk):
     TEXT_FG  = "#e2e8f0"
     MUTED    = "#94a3b8"
     GREEN    = "#22c55e"
+    RED      = "#ef4444"
     BORDER   = "#3f3f5a"
 
     def __init__(self, engine: TranslationEngine):
@@ -168,19 +181,19 @@ class TranslatorApp(tk.Tk):
 
         self.title("Twi ↔ Chinese Translator")
         self.configure(bg=self.BG)
-        self.geometry("900x640")
+        self.geometry("940x660")
         self.minsize(700, 500)
         self.resizable(True, True)
 
-        # fonts
         self._mono  = tkfont.Font(family="Courier New", size=12)
         self._sans  = tkfont.Font(family="Helvetica",   size=12)
         self._title = tkfont.Font(family="Helvetica",   size=16, weight="bold")
         self._small = tkfont.Font(family="Helvetica",   size=10)
 
-        self._direction = tk.StringVar(value="twi2chi")
-        self._beam      = tk.IntVar(value=5)
-        self._busy      = False
+        self._direction  = tk.StringVar(value="twi2chi")
+        self._beam       = tk.IntVar(value=5)
+        self._busy       = False
+        self._radio_btns = []   # keep refs for reliable color updates
 
         self._build_ui()
         self._load_model_async()
@@ -194,7 +207,6 @@ class TranslatorApp(tk.Tk):
         tk.Label(top, text="Twi ↔ Chinese Translator",
                  font=self._title, bg=self.PANEL, fg=self.TEXT_FG).pack(side=tk.LEFT)
 
-        # beam size spinner (right side of top bar)
         beam_frame = tk.Frame(top, bg=self.PANEL)
         beam_frame.pack(side=tk.RIGHT, padx=(0, 8))
         tk.Label(beam_frame, text="Beam:", font=self._small,
@@ -217,22 +229,22 @@ class TranslatorApp(tk.Tk):
                 selectcolor=self.ACCENT, activebackground=self.BG,
                 activeforeground=self.TEXT_FG,
                 command=self._on_direction_change,
-                indicatoron=0,
-                padx=18, pady=6, bd=0, relief=tk.FLAT,
+                indicatoron=0, padx=18, pady=6, bd=0, relief=tk.FLAT,
                 highlightthickness=1, highlightbackground=self.BORDER,
             )
             rb.pack(side=tk.LEFT, padx=(0, 8))
+            self._radio_btns.append((rb, val))
 
         self._update_radio_colors()
 
         # ── text panels ───────────────────────────────────────────────────────
         panes = tk.Frame(self, bg=self.BG)
-        panes.pack(fill=tk.BOTH, expand=True, padx=16, pady=(0, 8))
+        panes.pack(fill=tk.BOTH, expand=True, padx=16, pady=(0, 4))
         panes.columnconfigure(0, weight=1)
         panes.columnconfigure(1, weight=1)
         panes.rowconfigure(1, weight=1)
 
-        # source label + textarea
+        # source
         self._src_label = tk.Label(panes, text="Twi (source)",
                                    font=self._small, bg=self.BG, fg=self.MUTED,
                                    anchor="w")
@@ -251,10 +263,10 @@ class TranslatorApp(tk.Tk):
         self._src_text.configure(yscrollcommand=src_scroll.set)
         src_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self._src_text.pack(fill=tk.BOTH, expand=True)
-        # Ctrl+Enter to translate
         self._src_text.bind("<Control-Return>", lambda _: self._on_translate())
+        self._src_text.bind("<KeyRelease>",     lambda _: self._update_char_count())
 
-        # target label + textarea
+        # target
         self._tgt_label = tk.Label(panes, text="Chinese (output)",
                                    font=self._small, bg=self.BG, fg=self.MUTED,
                                    anchor="w")
@@ -272,6 +284,14 @@ class TranslatorApp(tk.Tk):
         self._tgt_text.configure(yscrollcommand=tgt_scroll.set)
         tgt_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self._tgt_text.pack(fill=tk.BOTH, expand=True)
+
+        # ── char count bar ────────────────────────────────────────────────────
+        count_bar = tk.Frame(self, bg=self.BG)
+        count_bar.pack(fill=tk.X, padx=16)
+        self._char_count = tk.Label(count_bar, text="",
+                                    font=self._small, bg=self.BG, fg=self.MUTED,
+                                    anchor="w")
+        self._char_count.pack(side=tk.LEFT)
 
         # ── bottom bar ────────────────────────────────────────────────────────
         bottom = tk.Frame(self, bg=self.PANEL, pady=8, padx=16)
@@ -295,6 +315,15 @@ class TranslatorApp(tk.Tk):
         )
         self._clear_btn.pack(side=tk.LEFT, padx=8)
 
+        self._copy_btn = tk.Button(
+            bottom, text="Copy Output",
+            font=self._sans, bg=self.BORDER, fg=self.TEXT_FG,
+            activebackground=self.PANEL, activeforeground=self.TEXT_FG,
+            relief=tk.FLAT, padx=14, pady=6, bd=0,
+            command=self._on_copy,
+        )
+        self._copy_btn.pack(side=tk.LEFT)
+
         self._status = tk.Label(
             bottom, text="Loading model…",
             font=self._small, bg=self.PANEL, fg=self.MUTED,
@@ -304,8 +333,7 @@ class TranslatorApp(tk.Tk):
     # ── direction toggle ──────────────────────────────────────────────────────
     def _on_direction_change(self):
         self._update_radio_colors()
-        d = self._direction.get()
-        if d == "twi2chi":
+        if self._direction.get() == "twi2chi":
             self._src_label.config(text="Twi (source)")
             self._tgt_label.config(text="Chinese (output)")
         else:
@@ -314,23 +342,29 @@ class TranslatorApp(tk.Tk):
         self._on_clear()
 
     def _update_radio_colors(self):
-        """Highlight the active radio button."""
-        for widget in self.winfo_children():
-            if isinstance(widget, tk.Frame):
-                for child in widget.winfo_children():
-                    if isinstance(child, tk.Radiobutton):
-                        selected = child["value"] == self._direction.get()
-                        child.config(
-                            bg=self.ACCENT if selected else self.BG,
-                            fg="white"     if selected else self.MUTED,
-                        )
+        active = self._direction.get()
+        for rb, val in self._radio_btns:
+            selected = (val == active)
+            rb.config(bg=self.ACCENT if selected else self.BG,
+                      fg="white"     if selected else self.MUTED)
 
-    # ── clear ────────────────────────────────────────────────────────────────
+    # ── helpers ───────────────────────────────────────────────────────────────
     def _on_clear(self):
         self._src_text.delete("1.0", tk.END)
         self._set_output("")
+        self._char_count.config(text="")
 
-    # ── status bar update (thread-safe) ───────────────────────────────────────
+    def _on_copy(self):
+        text = self._tgt_text.get("1.0", tk.END).strip()
+        if text:
+            self.clipboard_clear()
+            self.clipboard_append(text)
+            self._set_status("Copied to clipboard.", color=self.GREEN)
+
+    def _update_char_count(self):
+        n = len(self._src_text.get("1.0", tk.END).strip())
+        self._char_count.config(text=f"{n} chars" if n else "")
+
     def _set_status(self, msg: str, color: str = None):
         self.after(0, lambda: self._status.config(
             text=msg, fg=color or self.MUTED))
@@ -349,14 +383,20 @@ class TranslatorApp(tk.Tk):
         def _worker():
             try:
                 self.engine.load(status_cb=lambda m: self._set_status(m))
+                score_str = (f"{self.engine.best_score * 100:.2f}"
+                             if self.engine.best_score is not None else "n/a")
                 self.after(0, lambda: self._translate_btn.config(state=tk.NORMAL))
                 self._set_status(
                     f"Ready  |  epoch {self.engine.epoch}  |  "
-                    f"best BLEU {self.engine.best_score:.2f}  |  {self.engine.device}",
+                    f"best BLEU {score_str}  |  {self.engine.device}",
                     color=self.GREEN,
                 )
+            except FileNotFoundError as exc:
+                self._set_status(str(exc).split("\n")[0], color=self.RED)
+                self.after(0, lambda: self._set_output(
+                    f"Model not ready:\n\n{exc}"))
             except Exception as exc:
-                self._set_status(f"Load error: {exc}", color="#ef4444")
+                self._set_status(f"Load error: {exc}", color=self.RED)
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -376,16 +416,18 @@ class TranslatorApp(tk.Tk):
 
         direction = self._direction.get()
         beam      = self._beam.get()
+        t0        = time.perf_counter()
 
         def _worker():
             try:
-                result = self.engine.translate(src, direction=direction,
-                                               beam_size=beam)
+                result   = self.engine.translate(src, direction=direction,
+                                                 beam_size=beam)
+                elapsed  = time.perf_counter() - t0
                 self.after(0, lambda: self._set_output(result))
-                self._set_status("Done.", color=self.GREEN)
+                self._set_status(f"Done  ({elapsed:.2f}s)", color=self.GREEN)
             except Exception as exc:
                 self.after(0, lambda: self._set_output(f"[Error] {exc}"))
-                self._set_status(f"Error: {exc}", color="#ef4444")
+                self._set_status(f"Error: {exc}", color=self.RED)
             finally:
                 self._busy = False
                 self.after(0, lambda: self._translate_btn.config(
@@ -407,7 +449,7 @@ def parse_args():
 
 
 if __name__ == "__main__":
-    args = parse_args()
+    args   = parse_args()
     gpu_id = -1 if args.cpu else args.gpu
 
     engine = TranslationEngine(gpu_id=gpu_id)
