@@ -9,9 +9,9 @@ import math
 import scipy.stats as stats
 
 import utils
-import search_strategy
+import decoding
 import preprocess
-from expert_utils import PadRemover
+from pad_utils import PadRemover
 
 cudnn.benchmark = True
 
@@ -602,14 +602,14 @@ class Transformer(nn.Module):
 
     def translate(self, x_block, max_length=50, beam=5, alpha=0.6):
         if beam:
-            obj = search_strategy.BeamSearch(beam_size=beam,
+            obj = decoding.BeamSearch(beam_size=beam,
                                              max_len=max_length,
                                              alpha=alpha)
             id_list, score = obj.generate_output(self,
                                                  x_block)
             return id_list
         else:
-            obj = search_strategy.GreedySearch(max_len=max_length)
+            obj = decoding.GreedySearch(max_len=max_length)
             id_list = obj.generate_output(self,
                                           x_block)
             return id_list
