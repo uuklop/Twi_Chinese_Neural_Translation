@@ -4,7 +4,6 @@ import io
 import re
 import six
 import numpy as np
-import progressbar
 import json
 import os
 import pickle
@@ -44,10 +43,8 @@ def count_lines(path):
 
 
 def read_file(path, tok=False):
-    n_lines = count_lines(path)
-    bar = progressbar.ProgressBar(max_value=n_lines)
     with open_file(path) as f:
-        for line in bar(f):
+        for line in f:
             words = split_sentence(line, tok)
             yield words
 
