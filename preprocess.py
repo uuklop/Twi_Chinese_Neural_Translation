@@ -45,9 +45,9 @@ def count_lines(path):
 
 def read_file(path, tok=False):
     n_lines = count_lines(path)
-    bar = progressbar.ProgressBar()
+    bar = progressbar.ProgressBar(max_value=n_lines)
     with open_file(path) as f:
-        for line in bar(f, max_value=n_lines):
+        for line in bar(f):
             words = split_sentence(line, tok)
             yield words
 
@@ -135,11 +135,11 @@ if __name__ == "__main__":
 
     # Save the dataset to numpy files
     np.save(os.path.join(args.input, args.save_data + '.train.npy'),
-            train_data)
+            np.array(train_data, dtype=object))
     np.save(os.path.join(args.input, args.save_data + '.valid.npy'),
-            valid_data)
+            np.array(valid_data, dtype=object))
     np.save(os.path.join(args.input, args.save_data + '.test.npy'),
-            test_data)
+            np.array(test_data, dtype=object))
 
     # Save the vocab in json
     with open(os.path.join(args.input,

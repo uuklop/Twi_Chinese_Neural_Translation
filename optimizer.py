@@ -24,13 +24,27 @@ class TransformerAdamTrainer(object):
         self.learning_rate_constant = config.learning_rate_constant
         self.steps = 0
 
-    def step(self):
+    def step(self, scaler=None):
         self.steps += 1
         decay = (self.dim ** (-0.5)) * np.min([self.steps ** (-0.5),
                                                self.steps * (self.warmup_steps ** (-1.5))])
         for param_group in self.optimizer.param_groups:
             param_group['lr'] = self.learning_rate_constant * decay
-        self.optimizer.step()
+
+        # With AMP the scaler must unscale before grad clipping
+        if scaler is not None:
+            scaler.unscale_(self.optimizer)
+
+        params = [p for group in self.optimizer.param_groups for p in group['params']]
+        grad_norm = torch.nn.utils.clip_grad_norm_(params, max_norm=1.0).item()
+
+        if scaler is not None:
+            scaler.step(self.optimizer)
+            scaler.update()
+        else:
+            self.optimizer.step()
+
+        return grad_norm
 
     def zero_grad(self):
         self.optimizer.zero_grad()

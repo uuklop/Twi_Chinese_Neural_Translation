@@ -1,9 +1,8 @@
-sentencepiece==0.0.4
-chainer==3.4.0
-tqdm==4.19.8
-scipy==1.0.0
-numpy==1.14.2
-torchtext==0.2.1
-six==1.11.0
-torch==0.4.0a0+6c587e9
-progressbar2==3.36.0
+torch>=2.0.0
+sentencepiece>=0.2.0
+numpy>=1.24.0
+six>=1.16.0
+tqdm>=4.65.0
+progressbar2>=4.2.0
+matplotlib>=3.7.0
+tensorboard>=2.13.0

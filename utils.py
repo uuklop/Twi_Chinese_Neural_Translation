@@ -1,24 +1,78 @@
 import json
 import numpy as np
+import six
 import torch
 import time
 import math
 import sys
 from torch.autograd import Variable
-# import convert
-from chainer.dataset import convert
 
 
-if torch.cuda.is_available():
-    FLOAT_TYPE = torch.cuda.FloatTensor
-    INT_TYPE = torch.cuda.IntTensor
-    LONG_TYPE = torch.cuda.LongTensor
-    BYTE_TYPE = torch.cuda.ByteTensor
-else:
-    FLOAT_TYPE = torch.FloatTensor
-    INT_TYPE = torch.IntTensor
-    LONG_TYPE = torch.LongTensor
-    BYTE_TYPE = torch.ByteTensor
+# ── Inlined from convert.py (batch concatenation utility) ────────────────────
+def concat_examples(batch, device=None, padding=None):
+    """Concatenate a list of (src, tgt) array pairs into padded batch arrays."""
+    if len(batch) == 0:
+        raise ValueError('batch is empty')
+    first_elem = batch[0]
+    if isinstance(first_elem, tuple):
+        result = []
+        if not isinstance(padding, tuple):
+            padding = [padding] * len(first_elem)
+        for i in six.moves.range(len(first_elem)):
+            result.append(_concat_arrays([ex[i] for ex in batch], padding[i]))
+        return tuple(result)
+    elif isinstance(first_elem, dict):
+        result = {}
+        if not isinstance(padding, dict):
+            padding = {key: padding for key in first_elem}
+        for key in first_elem:
+            result[key] = _concat_arrays([ex[key] for ex in batch], padding[key])
+        return result
+    else:
+        return _concat_arrays(batch, padding)
+
+
+def _concat_arrays(arrays, padding):
+    if not isinstance(arrays[0], np.ndarray):
+        arrays = np.asarray(arrays)
+    if padding is not None:
+        return _concat_arrays_with_padding(arrays, padding)
+    return np.concatenate([a[None] for a in arrays])
+
+
+def _concat_arrays_with_padding(arrays, padding):
+    shape = np.array(arrays[0].shape, dtype=int)
+    for a in arrays[1:]:
+        if np.any(shape != a.shape):
+            np.maximum(shape, a.shape, shape)
+    shape = tuple(np.insert(shape, 0, len(arrays)))
+    result = np.full(shape, padding, dtype=arrays[0].dtype)
+    for i in six.moves.range(len(arrays)):
+        slices = tuple(slice(dim) for dim in arrays[i].shape)
+        result[(i,) + slices] = arrays[i]
+    return result
+
+
+# Default to CPU types; call set_device(gpu_id) at startup to switch to CUDA.
+FLOAT_TYPE = torch.FloatTensor
+INT_TYPE = torch.IntTensor
+LONG_TYPE = torch.LongTensor
+BYTE_TYPE = torch.ByteTensor
+
+
+def set_device(gpu_id):
+    """Switch global tensor types to match the chosen device (gpu_id < 0 = CPU)."""
+    global FLOAT_TYPE, INT_TYPE, LONG_TYPE, BYTE_TYPE
+    if gpu_id >= 0 and torch.cuda.is_available():
+        FLOAT_TYPE = torch.cuda.FloatTensor
+        INT_TYPE = torch.cuda.IntTensor
+        LONG_TYPE = torch.cuda.LongTensor
+        BYTE_TYPE = torch.cuda.ByteTensor
+    else:
+        FLOAT_TYPE = torch.FloatTensor
+        INT_TYPE = torch.IntTensor
+        LONG_TYPE = torch.LongTensor
+        BYTE_TYPE = torch.ByteTensor
 
 
 def to_cpu(x):
@@ -81,8 +135,8 @@ def seq2seq_pad_concat_convert(xy_batch, device, eos_id=1, bos_id=3):
     """
 
     x_seqs, y_seqs = zip(*xy_batch)
-    x_block = convert.concat_examples(x_seqs, device, padding=0)
-    y_block = convert.concat_examples(y_seqs, device, padding=0)
+    x_block = concat_examples(x_seqs, device, padding=0)
+    y_block = concat_examples(y_seqs, device, padding=0)
 
     # Add EOS
     x_block = np.pad(x_block, ((0, 0), (0, 1)), 'constant', constant_values=0)
@@ -108,7 +162,7 @@ def seq2seq_pad_concat_convert(xy_batch, device, eos_id=1, bos_id=3):
 
 
 def source_pad_concat_convert(x_seqs, device, eos_id=1, bos_id=3):
-    x_block = convert.concat_examples(x_seqs, device, padding=0)
+    x_block = concat_examples(x_seqs, device, padding=0)
 
     # add eos
     x_block = np.pad(x_block, ((0, 0), (0, 1)), 'constant', constant_values=0)
@@ -194,6 +248,47 @@ class Statistics(object):
         experiment.add_scalar_value(prefix + "_accuracy", self.accuracy())
         experiment.add_scalar_value(prefix + "_tgtper",  self.n_words / t)
         experiment.add_scalar_value(prefix + "_lr", lr)
+
+
+def _is_chinese_char(ch):
+    cp = ord(ch)
+    return (0x4E00 <= cp <= 0x9FFF or 0x3400 <= cp <= 0x4DBF or 0xF900 <= cp <= 0xFAFF)
+
+
+def post_process_output(path, spm_path=None):
+    """Post-process a saved hypothesis file in-place.
+
+    If spm_path is given: apply SentencePiece decode (for BPE Twi output).
+    Otherwise: remove spaces between adjacent Chinese characters
+               so char-tokenised Chinese is joined into readable text.
+    """
+    with open(path, encoding='utf-8') as f:
+        lines = [l.rstrip('\n') for l in f]
+
+    if spm_path is not None:
+        import sentencepiece as spm
+        sp = spm.SentencePieceProcessor()
+        sp.load(spm_path)
+        out = []
+        for line in lines:
+            pieces = line.split()
+            out.append(sp.decode(pieces))
+    else:
+        # Join adjacent Chinese characters; keep spaces around non-Chinese tokens
+        out = []
+        for line in lines:
+            tokens = line.split()
+            joined = []
+            for tok in tokens:
+                if joined and _is_chinese_char(tok[0]) and _is_chinese_char(joined[-1][-1]):
+                    joined[-1] += tok   # merge adjacent Chinese chars
+                else:
+                    joined.append(tok)
+            out.append(' '.join(joined))
+
+    with open(path, 'w', encoding='utf-8') as f:
+        for line in out:
+            f.write(line + '\n')
 
 
 def grad_norm(parameters, norm_type=2):

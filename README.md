@@ -1,116 +1,269 @@
-## Attention is All you Need (Transformer)
+# Twi ↔ Chinese Neural Machine Translation
 
-This repository is deprecated. Please refer to the updated codebase here: <https://github.com/DevSinghSachan/multilingual_nmt>
+A bidirectional neural machine translation system between **Twi** (Akan, Ghana) and **Mandarin Chinese** — two languages underrepresented in NMT research. Built on a modernised Transformer architecture trained as a single shared model for both directions simultaneously.
 
-This repository implements the `transformer` model in *pytorch* framework which was introduced in the paper *[Attention is All you Need](https://arxiv.org/abs/1706.03762)* as described in their
-NIPS 2017 version: https://papers.nips.cc/paper/7181-attention-is-all-you-need.pdf
+---
 
+## Architecture
 
-The overall model architecture is as shown in the figure:
+Based on *[Attention Is All You Need](https://arxiv.org/abs/1706.03762)* (Vaswani et al., 2017), with the following modernisations:
 
-![][transformer]
+| Component | Original | This Work |
+|---|---|---|
+| Attention | Scaled dot-product | **Flash Attention** (`F.scaled_dot_product_attention`) |
+| Position encoding | Sinusoidal (absolute) | **Rotary Position Embedding (RoPE)** |
+| FFN activation | ReLU | **SwiGLU** |
+| Training precision | FP32 | **Automatic Mixed Precision (AMP, FP16)** |
+| Model selection | Single best checkpoint | **Checkpoint averaging** (last 8 checkpoints) |
+| Gradient clipping | None | `clip_grad_norm_` (max = 1.0) |
 
-[transformer]: img/transformer.png "Transformer Model"
+**Configuration** (default): 6 layers · 8 attention heads · d_model = 512 · d_ffn = 2048 · dropout = 0.1 · label smoothing = 0.1
 
+---
 
-The code in this repository implements the following features:
-* Positional Encoding
-* Multi-Head Dot-Product Attention
-* Positional Attention from "*[Non-Autoregressive Neural Machine Translation](https://arxiv.org/abs/1711.02281)*"
-* Label Smoothing
-* Warm-up steps based training of Adam Optimizer
-* Shared weights of embedding and softmax layers
-* Beam Search with length normalisation
+## Repository Structure
 
-## Software Requirements
-* Python 3.6
-* Pytorch v0.4 (needs manual installation from source https://github.com/pytorch/pytorch)
-* torchtext
-* numpy
+```
+.
+├── data/
+│   ├── twi_chi/                   # Processed dataset
+│   │   ├── val.src / val.tgt      # Validation set — Twi→Chi (500 pairs)
+│   │   ├── test.src / test.tgt    # Test set — Twi→Chi (500 pairs)
+│   │   ├── test_rev.src / .tgt    # Test set — Chi→Twi (reversed)
+│   │   ├── twi_spm.model          # SentencePiece BPE model for Twi
+│   │   └── twi_spm.vocab          # SentencePiece vocabulary
+│   └── more_raw_twi_chinese_pairs/
+│       └── twi_chinese_direct.csv # Source parallel data (2.1 MB)
+│
+├── img/                           # Architecture diagrams
+│
+├── # ── Model ──────────────────────────────────────────────
+├── model.py                         # Transformer model (encoder, decoder, attention)
+├── decoding.py             # Beam search & greedy decoding
+├── pad_utils.py                # PadRemover utility for efficient FFN
+│
+├── # ── Training pipeline ──────────────────────────────────
+├── config.py                      # Argument parsing (train / translate / preprocess)
+├── optimizer.py                   # Warmup Adam with AMP-aware grad clipping
+├── metrics.py                   # BLEU, WER, CER evaluation
+├── train.py                       # Training loop with TensorBoard logging
+├── translate.py                   # Batch translation script
+├── preprocess.py                  # Tokenise & serialise dataset to .npy
+├── utils.py                       # Batching, padding, statistics, post-processing
+│
+├── # ── Data preparation ───────────────────────────────────
+├── tokenize_chinese.py                # Chinese character-level tokeniser
+├── build_dataset.py               # Build bidirectional train/val/test splits
+├── build_bpe.py                 # Train SentencePiece BPE on Twi; apply to data
+│
+├── # ── Utilities ──────────────────────────────────────────
+├── gui.py                         # Tkinter desktop GUI for interactive translation
+├── plot_training.py                # Plot training curves from results/metrics.jsonl
+├── pipeline.sh                 # End-to-end pipeline script
+│
+├── requirements.txt
+└── README.md
+```
 
-One can install the above packages using the requirements file.
+---
+
+## Installation
+
 ```bash
+git clone <repo-url>
+cd <repo>
 pip install -r requirements.txt
 ```
 
+**Requirements:** Python 3.9+, PyTorch 2.0+ (CUDA recommended), SentencePiece, Matplotlib, TensorBoard.
 
-## Usage
+---
 
-### Step 1: Preprocessing:
-```bash
-python preprocess.py -i data/ja_en -s-train train-big.ja -t-train train-big.en -s-valid dev.ja -t-valid dev.en -s-test test.ja -t-test test.en --save_data demo
-```
+## Quick Start
 
-### Step 2: Train and Evaluate the model:
-```bash
-python train.py -i data/ja_en --data demo --wbatchsize 4096 --batchsize 60 --tied --beam_size 5 --epoch 40 --layers 6 --multi_heads 8 --gpu 0
-```
+Run the entire pipeline (prepare → preprocess → train → translate) with one command:
 
 ```bash
-python translate.py -i data/ja_en --data demo --batchsize 60 --beam_size 5 --model_file "results/model.ckpt" --src data/ja_en/test.ja --gpu 0
+bash pipeline.sh          # all stages
+bash pipeline.sh prepare  # Step 1 only: build splits + BPE
+bash pipeline.sh preprocess  # Step 2 only
+bash pipeline.sh train    # Step 3 only
+bash pipeline.sh translate   # Step 4 only
 ```
 
-## Dataset
+Set `GPU=0` at the top of `pipeline.sh` for GPU training (default) or `GPU=-1` for CPU.
 
-Dataset Statistics included in `data` directory are:
+---
 
-| Dataset                     |Train Set|Dev Set|Test Set|
-| --------------------------- |:-------:|------:|-------:|
-| Japanse-English             | 148,850 | 500   | 500    |
-| IWSLT'15 English-Vietnamese | 133,317 | 1,553 | 1,268  |
-| IWSLT'16 German-English     | 98,132  | 887   | 1,565  |
+## Step-by-Step Usage
 
+### Step 1a — Build bidirectional data splits
 
-## Experiments
-All the experiments were performed on a modern Titan-Xp GPU with 12GB RAM.
-BLEU Scores are computed using Beam Search.
+Pools existing pairs with the source CSV, deduplicates, and creates a bidirectional training set (Twi→Chi + Chi→Twi shuffled together), plus held-out val/test sets (500 pairs each, Twi→Chi only).
 
-### Ja->En translation
-[Dataset URL](https://github.com/neulab/xnmt/tree/master/examples/data)
+```bash
+python build_dataset.py
+```
 
-| Method                  | Layers | BLEU (dev) | BLEU (test)  | Parameters | Words / Sec |
-| -----------------------------|:-:|:-----:| :----: |------:| -----:|
-| Transformer (self)           | 1 | 33.16 | 36.52 |32.5 M | 60.1K |
-| Transformer (self)           | 6 | 34.65 |     |69.3 M | 15.5K |
-| BiLSTM encoder (OpenNMT-py)  | 1 | 29.55 |     |41.3 M | 31.5K |
-| LSTM encoder (OpenNMT-py)    | 1 | 30.15 |     |41.8 M | 35.5K |
-| Transformer (OpenNMT-py)     | 1 | 26.83 |     |42.3 M | 52.5K |
-| BiLSTM encoder (XNMT)        | 1 | 29.58 | 31.39 |   | 9.1K<sup>*</sup> (Target Words) |
-| Transformer (XNMT)           | 1 | 25.55 |      |   | 2.2K (Target Words) |
+Output files in `data/twi_chi/`: `train.src`, `train.tgt`, `val.src`, `val.tgt`, `test.src`, `test.tgt`, `test_rev.src`, `test_rev.tgt`.
 
-<sup>*</sup>1 epoch get completed in around 180 seconds.
+### Step 1b — Train SentencePiece BPE and apply to Twi
 
+Trains a BPE model (vocab size 4000) on the Twi side of the training data, then applies it in-place. Chinese lines are left as character-level tokens.
 
-### En->Vi translation
-[Dataset URL](https://nlp.stanford.edu/projects/nmt/)
+```bash
+python build_bpe.py
+```
 
-| Method                 | Layers | BLEU (dev)| BLEU (test)  |Parameters| Words / Sec |
-| --------------------------- |:-:|:----: |:----: |------:| ----:|
-| Transformer (self)          | 1 | 21.96 |       | 41.2 M | 57.8K |
-| Transformer (self)          | 2 | 22.96 |       | 48.5 M | 40.2K |
-| BiLSTM encoder (OpenNMT-py) | 1 | 21.99 |       | 53.5 M | 30.5K |
-| LSTM encoder (OpenNMT-py)   | 1 | 21.04 |       | 53.9 M | 29.5K |
-| Transformer (OpenNMT-py)    | 1 | 19.26 |       | 55.3 M | 48.5K |
-| BiLSTM encoder (XNMT)       | 1 | 21.31 | 23.87 |        | 7.2K (Target Words) |
-| Transformer (XNMT)          | 1 |       |       |        |
+### Step 2 — Preprocess (build integer-indexed .npy files)
 
+```bash
+python preprocess.py \
+    -i data/twi_chi \
+    -s-train train.src  -t-train train.tgt \
+    -s-valid val.src    -t-valid val.tgt \
+    -s-test  test.src   -t-test  test.tgt \
+    --save_data twi_chi
+```
 
-### De->En translation (Dev Set BLEU Scores)
-[Dataset URL](http://www.phontron.com/class/mtandseq2seq2017/) . This dataset exists in tokenised form (using NLTK and lowercase).
+### Step 3 — Train
 
-| Method                 | Layers | BLEU (dev) | BLEU (test) | Parameters  | Words / Sec |
-| --------------------------- |:-------------:|:---:|:---: | -----:| ----:|
-| Transformer (self)          | 1 | 21.91  |       |  54.5 M |  44.5K  |
-| Transformer (self)          | 2 |        |       |  |
-| BiLSTM encoder (OpenNMT-py) | 1 | 23.10  | 23.71 |  73.7 M |  |
-| LSTM encoder (OpenNMT-py)   | 1 |        |       |  |
-| Transformer (OpenNMT-py)    | 1 |        |       |  |
-| BiLSTM encoder (XNMT)       | 1 | 22.87  | 23.43 |  | 8K |
-| Transformer (XNMT)          | 1 |        |       |  |
+```bash
+python train.py \
+    -i data/twi_chi \
+    --data twi_chi \
+    --wbatchsize 4096 \
+    --batchsize 60 \
+    --tied \
+    --beam_size 5 \
+    --epoch 60 \
+    --layers 6 \
+    --multi_heads 8 \
+    --warmup_steps 4000 \
+    --gpu 0 \
+    --out results \
+    --model_file      results/twi_chi_model.ckpt \
+    --best_model_file results/twi_chi_model_best.ckpt \
+    --dev_hyp         results/twi_chi_valid.out \
+    --dev_hyp_rev     results/twi_chi_valid_rev.out \
+    --test_hyp        results/twi_chi_test.out \
+    --test_hyp_rev    results/twi_chi_test_rev.out \
+    --spm_model       data/twi_chi/twi_spm.model
+```
 
-[//]: <> (git checkout 78acbe019f91e2e41b1975e1a06e9519d66a48a4 , "eval" branch, for best BLEU Scores)
+### Step 4 — Translate
+
+```bash
+# Twi → Chinese
+python translate.py \
+    -i data/twi_chi --data twi_chi \
+    --batchsize 60 --beam_size 5 \
+    --best_model_file results/twi_chi_model_best.ckpt \
+    --model_file      results/twi_chi_model.ckpt \
+    --src  data/twi_chi/test.src \
+    --output results/twi_chi_pred_twi2chi.txt \
+    --gpu 0
+
+# Chinese → Twi
+python translate.py \
+    -i data/twi_chi --data twi_chi \
+    --batchsize 60 --beam_size 5 \
+    --best_model_file results/twi_chi_model_best.ckpt \
+    --model_file      results/twi_chi_model.ckpt \
+    --src  data/twi_chi/test_rev.src \
+    --output results/twi_chi_pred_chi2twi.txt \
+    --spm_model data/twi_chi/twi_spm.model \
+    --gpu 0
+```
+
+---
+
+## Visualisation
+
+### TensorBoard
+
+TensorBoard logs are written to `results/runs/` automatically during training.
+
+```bash
+tensorboard --logdir results/runs
+# open http://localhost:6006
+```
+
+**Logged signals:**
+
+| Tab | Metric | Frequency |
+|---|---|---|
+| Scalars | `Step/loss`, `Step/ppl`, `Step/grad_norm` | Every training step |
+| Scalars | `Optimizer/learning_rate` | Every training step |
+| Scalars | `Perplexity/{train,val}`, `Accuracy/{train,val}` | Every eval checkpoint |
+| Scalars | `BLEU/{twi_to_chinese,chinese_to_twi,average}` | Every eval checkpoint |
+| Histograms | Weight & gradient distributions per layer | Every eval checkpoint |
+| Text | Live sample translations (5 pairs, both directions) | Every eval checkpoint |
+| HParams | All hyperparameters | Once at startup |
+
+### Static plots
+
+```bash
+python plot_training.py                          # interactive window
+python plot_training.py --save results/metrics.png   # save to file
+```
+
+Produces a 2×2 dashboard: perplexity · accuracy · BLEU · learning rate.
+
+---
+
+## Interactive GUI
+
+Launch a desktop translation interface backed by the best checkpoint:
+
+```bash
+python gui.py           # auto-detect GPU
+python gui.py --gpu 0   # explicit GPU
+python gui.py --cpu     # force CPU
+```
+
+Supports both directions, adjustable beam size, and Ctrl+Enter to translate.
+
+---
+
+## Data
+
+| Split | Pairs | Notes |
+|---|---|---|
+| Train | ~83 000 | Bidirectional (Twi→Chi + Chi→Twi shuffled) |
+| Validation | 500 | Twi→Chi only |
+| Test | 500 | Twi→Chi only; `test_rev.*` for Chi→Twi |
+
+**Tokenisation:**
+- **Twi**: SentencePiece BPE, vocab size 4 000, `character_coverage=1.0`
+- **Chinese**: Character-level (each character = one token, no segmentation ambiguity)
+
+**Data leakage:** Val and test sets are strictly disjoint from the training set (enforced in `build_dataset.py`).
+
+**Source data:** `data/more_raw_twi_chinese_pairs/twi_chinese_direct.csv` (included).
+The 99 MB supplementary CSV (`academic_reverse_pivot.csv`) is excluded from git due to size.
+
+---
+
+## Reproducing from scratch
+
+If you only have the source CSV and want to rebuild everything:
+
+```bash
+bash pipeline.sh prepare     # splits + BPE
+bash pipeline.sh preprocess  # .npy files
+bash pipeline.sh train       # model
+bash pipeline.sh translate   # output files
+```
+
+---
 
 ## Acknowledgements
-* Thanks to the suggestions from Graham Neubig [@gneubig](https://github.com/neubig) and Matt Sperber [@msperber](https://github.com/msperber)
-* The code in this repository was originally based and has been adapted from the [Sosuke Kobayashi](https://github.com/soskek)'s implementation in Chainer "https://github.com/soskek/attention_is_all_you_need".
-* Some parts of the code were borrowed from [XNMT](https://github.com/neulab/xnmt/tree/master/xnmt) (based on [Dynet](https://github.com/clab/dynet)) and [OpenNMT-py](https://github.com/OpenNMT/OpenNMT-py) (based on [Pytorch](https://github.com/pytorch/pytorch)).
+
+- Original Transformer implementation adapted from [DevSinghSachan/multilingual_nmt](https://github.com/DevSinghSachan/multilingual_nmt), which in turn draws from [Sosuke Kobayashi's Chainer implementation](https://github.com/soskek/attention_is_all_you_need).
+- Evaluation utilities adapted from [XNMT](https://github.com/neulab/xnmt) and [OpenNMT-py](https://github.com/OpenNMT/OpenNMT-py).
+- Flash Attention via PyTorch 2.0 `F.scaled_dot_product_attention`.
+
+---
+
+*This work is part of ongoing research on neural machine translation for low-resource and underrepresented African languages.*

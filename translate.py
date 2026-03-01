@@ -6,9 +6,9 @@ import pickle
 import json
 import torch
 from tqdm import tqdm
-
-import net
+import model as net
 import preprocess
+import utils
 from train import save_output
 from config import get_translate_args
 
@@ -45,6 +45,7 @@ class TranslateText(object):
 def main():
     args = get_translate_args()
     print(json.dumps(args.__dict__, indent=4))
+    utils.set_device(args.gpu)
 
     # Reading the vocab file
     with open(os.path.join(args.input, args.data + '.vocab.pickle'),
@@ -75,6 +76,9 @@ def main():
                         beam_size=args.beam_size,
                         alpha=args.alpha)()
     save_output(hyp, id2w, args.output)
+
+    spm_model = getattr(args, 'spm_model', None)
+    utils.post_process_output(args.output, spm_path=spm_model)
 
 
 if __name__ == '__main__':

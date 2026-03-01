@@ -1,107 +1,69 @@
-# MacOSX specific files
+# ── OS / editor ───────────────────────────────────────────────────────────────
 .DS_Store
+.idea/
+.vscode/
+*.swp
 
-# Byte-compiled / optimized / DLL files
+# ── Claude Code local settings ────────────────────────────────────────────────
+.claude/
+
+# ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *$py.class
-
-results/
-# C extensions
 *.so
-
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-.idea/
-*.egg-info/
-.installed.cfg
 *.egg
-
-# PyInstaller
-#  Usually these files are written by a python script from a template
-#  before PyInstaller builds the exe, so as to inject date/other infos into it.
-*.manifest
-*.spec
-
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-.hypothesis/
-
-# Translations
-*.mo
-*.pot
-
-# Django stuff:
-*.log
-local_settings.py
-
-# Flask stuff:
-instance/
-.webassets-cache
-
-# Scrapy stuff:
-.scrapy
-
-# Sphinx documentation
-docs/_build/
-
-# PyBuilder
-target/
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# pyenv
-.python-version
-
-# celery beat schedule file
-celerybeat-schedule
-
-# SageMath parsed files
-*.sage.py
-
-# Environments
+*.egg-info/
+.eggs/
+dist/
+build/
+.Python
 .env
 .venv
 env/
 venv/
 ENV/
 
-# Spyder project settings
-.spyderproject
-.spyproject
-
-# Rope project settings
-.ropeproject
-
-# mkdocs documentation
-/site
-
-# mypy
+# ── Testing / coverage ────────────────────────────────────────────────────────
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+.cache
+nosetests.xml
+coverage.xml
+.hypothesis/
 .mypy_cache/
 
-# numpy data-files
+# ── Generated / large data files (reproducible from source) ──────────────────
 *.npy
+*.pickle
+*.pkl
+
+# Raw data files that are too large for git (>50 MB)
+data/more_raw_twi_chinese_pairs/academic_reverse_pivot.csv
+
+# Regenerated training splits (built by prepare_bidir.py + prepare_bpe.py)
+data/twi_chi/train.src
+data/twi_chi/train.tgt
+
+# ── Training outputs ──────────────────────────────────────────────────────────
+results/
+
+# ── Jupyter ───────────────────────────────────────────────────────────────────
+.ipynb_checkpoints
+
+# ── Misc packaging ────────────────────────────────────────────────────────────
+pip-log.txt
+pip-delete-this-directory.txt
+*.manifest
+*.spec
+/site
+*.log
+*.mo
+*.pot
+celerybeat-schedule
+*.sage.py
+.spyderproject
+.spyproject
+.ropeproject

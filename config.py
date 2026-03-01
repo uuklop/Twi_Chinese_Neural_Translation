@@ -77,8 +77,8 @@ def get_train_args():
                         help='Metric to save the model. Options are: bleu/accuracy')
     parser.add_argument('--alpha', default=1.0, type=float,
                         help='Length Normalization coefficient')
-    parser.add_argument('--max_sent_eval', default=500, type=int,
-                        help='Max. sentences to evaluate while training')
+    parser.add_argument('--max_sent_eval', default=None, type=int,
+                        help='Max. sentences to evaluate while training (None = full val set)')
 
     # Output Files
     parser.add_argument('--out', '-o', default='results',
@@ -88,9 +88,15 @@ def get_train_args():
     parser.add_argument('--best_model_file', default='results/model_best.ckpt', type=str,
                         help='path to save the best model')
     parser.add_argument('--dev_hyp', default='results/valid.out', type=str,
-                        help='path to save dev set hypothesis')
+                        help='path to save dev set hypothesis (Twi->Chi)')
+    parser.add_argument('--dev_hyp_rev', default='results/valid_rev.out', type=str,
+                        help='path to save dev set hypothesis (Chi->Twi)')
     parser.add_argument('--test_hyp', default='results/test.out', type=str,
-                        help='path to save test set hypothesis')
+                        help='path to save test set hypothesis (Twi->Chi)')
+    parser.add_argument('--test_hyp_rev', default='results/test_rev.out', type=str,
+                        help='path to save test set hypothesis (Chi->Twi)')
+    parser.add_argument('--spm_model', default=None, type=str,
+                        help='Path to SentencePiece .model file for Twi BPE detokenization')
 
     args = parser.parse_args()
     return args
@@ -157,6 +163,8 @@ def get_translate_args():
     parser.add_argument('--beam_size', type=int, default=5)
     parser.add_argument('--alpha', default=1.0, type=float,
                         help='Length Normalization coefficient')
+    parser.add_argument('--spm_model', default=None, type=str,
+                        help='Path to SentencePiece .model file for Twi BPE detokenization')
 
     args = parser.parse_args()
     return args
