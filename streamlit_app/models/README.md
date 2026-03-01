@@ -20,7 +20,7 @@ These files are **gitignored** — never commit large binaries to git.
 4. In Streamlit Cloud → **App settings → Secrets**, add:
 
 ```toml
-HF_REPO_ID = "your-username/your-repo-name"
+HF_REPO_ID = "JamesSalar/twi-chinese"
 # Only needed for private repos:
 # HF_TOKEN = "hf_xxxxxxxxxxxxxxxxxxxx"
 ```

@@ -4,9 +4,10 @@
 
 A **bidirectional neural machine translation** system between **Twi** (Akan, Ghana) and **Mandarin Chinese** — two languages significantly underrepresented in NLP research. Built on a modernised Transformer trained as a single shared model for both directions simultaneously.
 
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-twichi--translate.streamlit.app-FF4B4B?logo=streamlit&logoColor=white)](https://twichi-translate.streamlit.app/)
+[![Hugging Face](https://img.shields.io/badge/Model-JamesSalar%2Ftwi--chinese-FFD21E?logo=huggingface&logoColor=black)](https://huggingface.co/JamesSalar/twi-chinese)
 [![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-blue.svg)](https://www.python.org/)
 [![PyTorch 2.0+](https://img.shields.io/badge/PyTorch-2.0%2B-orange.svg)](https://pytorch.org/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-1.28%2B-red.svg)](https://streamlit.io/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 </div>
@@ -15,9 +16,9 @@ A **bidirectional neural machine translation** system between **Twi** (Akan, Gha
 
 ## Live Demo
 
-The web app is built with **Streamlit** and is ready to deploy. See the [streamlit_app/](streamlit_app/) directory.
+**Try it now:** [https://twichi-translate.streamlit.app/](https://twichi-translate.streamlit.app/)
 
-> **Streamlit Cloud**: connect your fork at [streamlit.io/cloud](https://streamlit.io/cloud) and set the main file to `streamlit_app/app.py`.
+The web app supports bidirectional translation, adjustable beam search, a confidence score bar, and 500 example sentences per language. Built with Streamlit and served from Hugging Face Hub model weights ([JamesSalar/twi-chinese](https://huggingface.co/JamesSalar/twi-chinese)).
 
 ---
 
@@ -58,6 +59,10 @@ Trained for **60 epochs** on ~41 500 parallel Twi–Chinese sentence pairs (bidi
 ## Architecture
 
 Based on *[Attention Is All You Need](https://arxiv.org/abs/1706.03762)* (Vaswani et al., 2017), with the following modernisations:
+
+<p align="center">
+  <img src="architectural_diagram/architecture.png" alt="Twi ↔ Chinese Transformer Architecture" width="72%"/>
+</p>
 
 | Component | Original | This Work |
 |---|---|---|
