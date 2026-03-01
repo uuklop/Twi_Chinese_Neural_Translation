@@ -32,11 +32,63 @@ VOCAB_PATH = _MODEL_DIR / os.getenv("MODEL_VOCAB", "twi_chi.vocab.pickle")
 SPM_PATH   = _MODEL_DIR / os.getenv("MODEL_SPM",   "twi_spm.model")
 
 
+# ── HF Hub auto-download ──────────────────────────────────────────────────────
+def _hf_secret(key: str):
+    """Read a value from Streamlit secrets, return None if unavailable."""
+    try:
+        return st.secrets.get(key)
+    except Exception:
+        return None
+
+
+def _ensure_model_files():
+    """Download any missing model files from Hugging Face Hub.
+
+    Requires HF_REPO_ID to be set as an environment variable or
+    Streamlit secret (e.g.  username/twi-chi-model).
+    Optionally set HF_TOKEN for private repos.
+    """
+    needed = [
+        (CKPT_PATH,  os.getenv("MODEL_CKPT",  "twi_chi_model_best.ckpt")),
+        (VOCAB_PATH, os.getenv("MODEL_VOCAB", "twi_chi.vocab.pickle")),
+        (SPM_PATH,   os.getenv("MODEL_SPM",   "twi_spm.model")),
+    ]
+    missing = [(path, fname) for path, fname in needed if not path.exists()]
+    if not missing:
+        return
+
+    hf_repo = os.getenv("HF_REPO_ID") or _hf_secret("HF_REPO_ID")
+    if not hf_repo:
+        missing_names = ", ".join(fname for _, fname in missing)
+        raise FileNotFoundError(
+            f"Model file(s) not found: {missing_names}\n\n"
+            "To auto-download, set  HF_REPO_ID  to your Hugging Face repo\n"
+            "(e.g. 'username/twi-chi-model') as an environment variable or\n"
+            "Streamlit secret, then reboot the app.\n\n"
+            "Alternatively, place the three model files in  models/"
+        )
+
+    from huggingface_hub import hf_hub_download
+    hf_token = os.getenv("HF_TOKEN") or _hf_secret("HF_TOKEN")
+    _MODEL_DIR.mkdir(parents=True, exist_ok=True)
+
+    for local_path, filename in missing:
+        with st.spinner(f"Downloading {filename} from Hugging Face Hub…"):
+            hf_hub_download(
+                repo_id=hf_repo,
+                filename=filename,
+                local_dir=str(_MODEL_DIR),
+                token=hf_token,
+            )
+
+
 # ── cached engine load (once per Streamlit server lifetime) ───────────────────
 @st.cache_resource(show_spinner="Loading translation model…")
 def load_engine():
     """Load the single bidirectional model and return all inference assets."""
     import model as net
+
+    _ensure_model_files()
 
     for path, label in [(CKPT_PATH,  "Checkpoint"),
                         (VOCAB_PATH, "Vocabulary"),

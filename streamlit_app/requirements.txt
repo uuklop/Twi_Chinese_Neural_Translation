@@ -10,3 +10,6 @@ six>=1.16.0         # utils.py uses six
 
 # ── App config ────────────────────────────────────────────────────────────────
 pyyaml>=6.0.0
+
+# ── Model hosting (auto-download from Hugging Face Hub) ───────────────────────
+huggingface_hub>=0.20.0
